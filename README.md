@@ -2,63 +2,109 @@
 
 [中文 README](https://github.com/egsfggr22222/Whales-Pencil-/blob/main/Whales%20Pencil/README.md)
 
-A transparent canvas that **covers the entire desktop**. The agent can draw in any color, and you can draw with a red pencil picked up from the tray — **either side can erase what the other has drawn**, so you can communicate by "pointing at things."
+A transparent canvas that **covers the entire desktop**. The agent can draw in any color, and you can draw with a red pencil picked up from the floating ball — **either side can erase what the other has drawn**, so you can communicate by "pointing at things."
 
 It is not drawn inside the DSH window: the canvas is a full-screen window on the desktop, and DSH sits beneath it.
 
-## Two Pencils
+## Four Interface Elements
 
-| | agent | user |
+| Element | What it is | When it appears |
 |---|---|---|
-| Entry | `pencil` tool | tray **User's Pencil** |
-| Color | any | red only (`#FF2020`) |
-| Trigger | `action: "draw"` | left-click tray → pick up pencil |
-| Eraser | `action: "erase"` (by id or rect) | **right-drag** while drawing |
-| Clear all | ✗ **not allowed** | tray "Clear All" / settings-page button |
+| **Floating ball** | A 52×52 red-and-black ball. Double-click to open the canvas, right-click for the menu | Always on screen, draggable anywhere |
+| **Canvas** | A full-screen transparent layer for drawing, writing, erasing | Double-click the ball to enter, `Esc` to leave |
+| **Dynamic island** | A status capsule at the top centre of the screen | Appears while the agent works, disappears when it finishes |
+| **Menus** | 2 items on the ball, 4 on the canvas | Right-click |
 
-`The agent cannot clear everything at once` is intentional: wiping the whole canvas would overturn the user's work, and only the user may do that. If the agent wants to remove its own things, it uses `erase` to name them precisely.
+## The Floating Ball
 
-## User Drawing
+**Double left-click** → open the canvas (the ball hides)
+**Single left-click** → nothing (guards against accidents)
+**Drag** → move it anywhere; native OS dragging, fully responsive
+**Right-click** → menu: `Summon agent` / `Clear all`
 
-After clicking the tray (or "Pick Up Pencil" on the settings page):
+The ball can be dragged to a screen edge and will hang off it, but never further than 16 px — it cannot be dragged out of reach.
 
-- **Click-through disabled**: this layer starts catching the mouse, and all desktop clicks land on the canvas
-- The mouse **turns into a pencil**
-- **Left-drag** → red line
-- **Right-drag** → eraser (erases strokes and text under the cursor, the agent's and yours alike)
-- **Shift + right-click** → open a **text box** in place, type, `Enter` to keep it, `Esc` to discard
-- **Scroll wheel** → adjust thickness (1–30 px), with the current width shown next to the cursor
-- **ESC** → exit drawing mode, click-through restored, mouse back to an arrow
+> The ball is a **separate window**, not painted on the canvas. The canvas is click-through while idle, so anything painted on it could not be clicked.
 
-Tray menu: Pick Up Pencil / **Summon agent** / Clear All / Exit Drawing / Exit.
+## Canvas Controls
 
-> Windows 11 tucks new tray icons into the overflow area. If you can't see it, click `^` on the taskbar and drag it out, or use the "Pick Up Pencil" button on the settings page — the two are equivalent.
+| Action | Effect |
+|---|---|
+| **Left-drag** | Draw a red line |
+| **Shift + left-click** | Eraser (erases strokes and text under the cursor) |
+| **Right-click** | Open the menu (**does not erase**) |
+| **Scroll wheel** | Adjust thickness (1–30 px), with the width shown next to the cursor |
+| **Esc** | Leave the canvas; the ball returns |
+
+Canvas menu (4 items):
+
+```
+Text box
+─────────
+Summon agent
+Clear all
+─────────
+Exit drawing
+```
+
+**"Text box" opens its input at the right-click position**, not in a fixed corner.
+
+## Text Is a Copyable Container
+
+Text is not a picture; it is a real text container. **The user's text and the agent's text behave identically**:
+
+| Action | Effect |
+|---|---|
+| Hover | Cursor becomes an I-beam |
+| Drag | **Selects character by character** |
+| Double-click | Selects a word |
+| `Ctrl + A` | Select all |
+| **`Ctrl + C`** | **Copies to the system clipboard** |
+
+The boxes are read-only `TextBox` controls, so selection and copying are native Windows behaviour.
+
+## Entering Text
+
+Right-click → "Text box" → an input appears where you clicked:
+
+- **Enter** → new line (genuinely multi-line)
+- **Click outside the box** → commit
+- **Esc** → cancel
+
+On commit it becomes a red text label and is written to `user.json` for the agent to read.
+
+## Dynamic Island
+
+A translucent capsule at the **top centre of the screen** showing what the agent is doing:
+
+| State | Shows | Dot colour |
+|---|---|---|
+| Thinking | `Thinking 5s` | Grey-blue |
+| Reading | `Reading eye 3s` | Cyan |
+| Calling a tool | `Calling pencil 12s` | Green |
+| Idle | **Disappears entirely** | — |
+
+**A red stop button sits on its right** → clicking it aborts the agent's task and the island vanishes immediately.
+
+The island is a **separate window** so it can be clicked (the canvas itself is click-through).
 
 ## Summoning the Agent
 
-The user can't speak up at any time, so the tray provides a doorbell:
+Right-click the ball (or the canvas menu) → "Summon agent":
 
-1. Click "Summon agent" in the tray
-2. The window **captures a full-screen screenshot** and writes it to `~/.dsh/whale-pencil/summon-<time>.png`
-3. It also writes `summon.json`
-4. When the Host reads it, it delivers a prompt into **the session that most recently used the pencil** (`sessionController.prompt`), so the agent wakes up and knows where to look
+1. The window **captures a full-screen screenshot** and delivers it to the model through the attachment service
+2. It also writes `summon.json`
+3. When the Host reads it, it delivers a prompt into **the session that most recently used the pencil**
+4. The agent wakes up with the screenshot attached
 
 The delivery result is written to `summon-ack.json`; success is `{"ok":true}`, failure carries an `error` — nothing is silent.
-
-> This model may not be able to "see" images directly. Models that can will see the screenshot; those that can't can use `pencil scene` to read strokes and text, or infer indirectly via pixel analysis.
-
-## Why the Tray Takes a Detour
-
-The tray icon lives on the WinForms thread, while the window lives on the WPF dispatcher. Changing window styles directly in a tray event throws a cross-thread exception, and once an exception is swallowed by `try/catch`, it becomes **mode changed, style not changed** — which manifests exactly as "the pencil won't pick up."
-
-So the tray only writes a `$script:pendingMode`, and the window's own `DispatcherTimer` performs the actual switch on the UI thread. This path now has test coverage: switching to ink removes `WS_EX_TRANSPARENT`, and switching back to idle restores it.
 
 ## Agent Drawing
 
 ```
 pencil { action: "draw",  items: [...] }        // any color
 pencil { action: "erase", ids: ["a3-1"] }       // name precisely
-pencil { action: "erase", rects: [{...}] }      // by region, erasing the user's strokes too
+pencil { action: "erase", rects: [{...}] }      // by region
 pencil { action: "scene" }                      // see what's on the canvas
 pencil { action: "annotate", source: "img.png", items: [...] }
 pencil { action: "overlay", overlay: "start" }
@@ -66,60 +112,87 @@ pencil { action: "overlay", overlay: "start" }
 
 Primitives: `rect / ellipse / path / arrow / text / image / pixels`. Coordinates default to **desktop physical pixels**, with `(0,0)` at the top-left of the screen; `unit: "window"` uses screen percentages.
 
-## Image Annotation
+**The agent cannot clear everything at once** — wiping the whole canvas would overturn the user's work, and only the user may do that. If the agent wants to remove its own things, it uses `erase` to name them precisely.
 
-You send me an image, I draw annotations on it and send it back:
+## Image Annotation
 
 ```
 pencil { action: "annotate", source: "original.png", items: [{type:"arrow", ...}] }
-→ writes original-pencil.png
+→ writes Processed image/original-pencil-20261019135723.png
 ```
 
-The original is untouched; the result is saved separately. Composition uses `System.Drawing`, so no Node image library is needed.
+The original is untouched; the result is saved separately. All output goes into the `Processed image` folder.
 
 ## Why It's Designed This Way
 
-**The two kinds of strokes are stored separately.** Different processes writing the same file will inevitably conflict, so:
+### Three Separate Windows
+
+| Window | Purpose | Clicks |
+|---|---|---|
+| Canvas | Drawing | Only while drawing; click-through otherwise |
+| Floating ball | Entry point | Always |
+| Dynamic island | Status | Always (stop button) |
+
+**They must be separate.** The canvas is `WS_EX_TRANSPARENT` (click-through) while idle, so a button painted on it could never be clicked. This is a trap that was hit three times.
+
+### File Channels
+
+The two processes communicate through files, one writer per file:
 
 | File | Writer | Reader |
 |---|---|---|
 | `scene.json` | Host (agent) | window |
 | `user.json` | window (user) | Host |
-| `commands.json` | Host | window (agent erasing user strokes) |
-| `clear.txt` | window | Host (sync after user clears) |
+| `commands.json` | Host | window |
+| `clear.txt` | window | Host |
+| `stop.txt` | window (stop button) | Host |
+| `status.json` | Host | window (dynamic island) |
 
-One file, one writer — the direction is always clear.
+**Why the stop button uses a file instead of HTTP**: the DSH web service only admits requests carrying a live session. The board window is a separate process with no session, so an HTTP request comes back 401.
 
-**Heartbeat + self-reported pid.** The window checks `alive.txt` every second, and **closes itself** if it hasn't been updated for more than 6 seconds — so if the host crashes, it won't leave an always-on-top transparent window on the desktop. After loading, the window writes `window.txt` to report its own pid, and the Host uses that to judge liveness.
+### Heartbeat
 
-## Three Pitfalls You Must Remember
+The window checks `alive.txt` every second and **closes itself** if it hasn't been updated for more than 6 seconds — so if the host crashes, it won't leave an always-on-top transparent window on the desktop.
+
+## Five Pitfalls You Must Remember
 
 **1. You must launch with `cmd /c start`**
 
-Spawning `powershell.exe` directly makes the WPF window share the host's window station, and it **exits instantly with no error**. `cmd /c start` gives the window its own window station so it can survive. The cost is that you can't get the real pid — hence `window.txt`.
+Spawning `powershell.exe` directly makes the WPF window share the host's window station, and it **exits instantly with no error**.
 
 **2. High-DPI scaling must be converted**
 
-WPF uses device-independent units. At 125% scaling, 1 unit = 1.25 physical pixels, so drawing directly in pixels comes out 25% too large. On load, the window measures the real ratio with `GetClientRect ÷ ActualWidth`, and coordinates are divided by it first.
+WPF uses device-independent units. At 125% scaling, drawing directly in physical pixels comes out 25% too large.
 
-**3. `pencil.ps1` / `annotate.ps1` must be pure ASCII**
+**3. `pencil.ps1` must be pure ASCII**
 
-Windows PowerShell 5.1 reads BOM-less `.ps1` files using the ANSI code page, and non-ASCII characters corrupt the script. That's why the tray's Chinese labels are written by the Host into `labels.json` and read from there — not passed on the command line, not written in the script.
+Windows PowerShell 5.1 reads BOM-less `.ps1` files using the ANSI code page. Chinese labels go through `labels.json`.
+
+**4. PowerShell comments must not contain backticks**
+
+A backtick is an escape character; inside a comment it still breaks parsing, and the reported error points somewhere far away.
+
+**5. A borderless window cannot be dragged with `DragMove()`**
+
+`DragMove()` needs a caption or a resize frame. A `WindowStyle = 'None'` window has neither, so it **fails silently**. Use `ReleaseCapture()` + `SendMessage(WM_SYSCOMMAND, SC_MOVE)` instead.
 
 ## Structure
 
 | File | Role |
 |---|---|
-| `index.js` | Host: scene, `pencil` tool, routing, window lifecycle, image-composition calls |
-| `client.js` | Browser: settings page (window toggle, counts, clear, restart). **No page drawing layer** |
-| `pencil.ps1` | Desktop window + tray: rendering, mouse drawing, right-click erase, scroll-wheel thickness, ESC exit |
-| `annotate.ps1` | Image composition: draw primitives onto a PNG |
+| `index.js` | Host: scene, `pencil` tool, routing, window lifecycle, dynamic-island state |
+| `client.js` | Browser: settings page |
+| `pencil.ps1` | Desktop window: canvas + floating ball + dynamic island |
+| `annotate.ps1` | Image composition |
+| `locate.ps1` | Locate the plugin directory |
+| `skills/` | The `pencil-board` and `pencil-summon` skill documents |
 
-State directory: `~/.dsh/whale-pencil/`.
+State directory: `~/.dsh/whale-pencil/`
 
 ## Known Limitations
 
 - Only runs on **Windows**.
-- Drawing mode catches the mouse across the entire desktop (necessary to draw at all); ESC and the tray's "Exit Drawing" are the two ways out.
-- The user only has red; changing colors requires the agent to draw, or a palette added later.
+- Drawing mode catches the mouse across the entire desktop (necessary to draw at all).
+- The user only has red; changing colors requires the agent to draw.
 - Multi-monitor setups span the virtual screen, but the coordinate origin is the top-left of the primary monitor.
+- Text selection is driven manually by the board (because the canvas owns the mouse). It is character-accurate but not a full text box: no drag-and-drop, no context menu.
